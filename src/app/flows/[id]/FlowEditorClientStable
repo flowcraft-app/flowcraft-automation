@@ -1,0 +1,715 @@
+"use client";
+
+import React, { useEffect, useState, useCallback } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  useReactFlow,
+  useStore,
+} from "reactflow";
+import { useRouter } from "next/navigation";
+
+import RunOutputPanel from "../../../components/RunOutputPanel";
+import RunHistoryPanel from "../../../components/RunHistoryPanel";
+import "reactflow/dist/style.css";
+
+// V1'de tipleri gevşek tutuyoruz
+type NodeData = {
+  label?: string;
+  type?: string;
+  url?: string;
+  method?: string;
+  mode?: string; // IF node için (status_eq, ok_true)
+  expected?: number | string; // IF node için beklenen değer
+};
+
+const nodeTypes = {};
+const edgeTypes = {};
+
+// 🔹 Zoom seviyesi + Reset butonu
+function ZoomPanel() {
+  const zoom = useStore((s: any) => s.transform[2]);
+  const { fitView, setViewport } = useReactFlow();
+
+  const handleReset = () => {
+    setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 300 });
+    fitView({ padding: 0.2, duration: 300 });
+  };
+
+  const zoomPercent = Math.round((zoom || 1) * 100);
+
+  return (
+    <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 flex items-center gap-1 bg-slate-900/80 text-[10px] px-1.5 py-1 rounded border border-slate-600 shadow pointer-events-auto">
+      <span className="text-gray-200">{zoomPercent}%</span>
+      <button
+        onClick={handleReset}
+        title="Zoom'u sıfırla"
+        className="w-5 h-5 flex items-center justify-center rounded border border-slate-500 hover:bg-slate-800 transition text-xs"
+      >
+        ↺
+      </button>
+    </div>
+  );
+}
+
+// 🔹 Autosave indicator
+function AutoSaveIndicator({ autoSaving }: { autoSaving: boolean }) {
+  if (!autoSaving) return null;
+
+  return (
+    <div className="absolute top-2 right-2 bg-emerald-900/80 text-emerald-300 text-[10px] px-2 py-1 rounded border border-emerald-500 shadow pointer-events-none">
+      Otomatik kaydediliyor...
+    </div>
+  );
+}
+
+export default function FlowEditorClientStable({ flowId }: { flowId: string }) {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState<any>([]);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState<any>([]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const [flowName, setFlowName] = useState<string>("");
+  const [flowDescription, setFlowDescription] = useState<string>("");
+
+  const [runId, setRunId] = useState<string | null>(null);
+  const [autoSaveTimer, setAutoSaveTimer] = useState<any>(null);
+
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaError, setMetaError] = useState<string | null>(null);
+
+  // ----------------- FLOW + DIAGRAM LOAD -----------------
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+
+        const flowRes = await fetch(`/api/flows/${flowId}`);
+        const flowJson = await flowRes.json();
+
+        setFlowName(flowJson.flow?.name ?? "");
+        setFlowDescription(flowJson.flow?.description ?? "");
+
+        const diaRes = await fetch(`/api/flows/${flowId}/diagram`);
+        const diaJson = await diaRes.json();
+
+        setNodes(diaJson.nodes ?? []);
+        setEdges(diaJson.edges ?? []);
+
+        console.log("DIAGRAM NODES RAW:", diaJson.nodes);
+        console.log("DIAGRAM EDGES RAW:", diaJson.edges);
+      } catch (err: any) {
+        setError(err.message ?? "Flow yüklenemedi");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [flowId, setNodes, setEdges]);
+
+  // ----------------- AUTO SAVE (diagram) -----------------
+  const handleAutoSave = useCallback(async () => {
+    try {
+      setAutoSaving(true);
+
+      await fetch(`/api/flows/${flowId}/diagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes, edges }),
+      });
+    } catch (err) {
+      console.error("Auto-save hata:", err);
+    } finally {
+      setAutoSaving(false);
+    }
+  }, [flowId, nodes, edges]);
+
+  const triggerAutoSave = useCallback(() => {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+
+    const timer = setTimeout(() => {
+      handleAutoSave();
+    }, 1000);
+
+    setAutoSaveTimer(timer);
+  }, [autoSaveTimer, handleAutoSave]);
+
+  // ----------------- FLOW META SAVE -----------------
+  const saveFlowMeta = useCallback(async () => {
+    try {
+      setMetaSaving(true);
+      setMetaError(null);
+
+      const res = await fetch(`/api/flows/${flowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: flowName,
+          description: flowDescription,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || "Flow bilgisi güncellenemedi");
+      }
+    } catch (err: any) {
+      console.error("Flow meta save error:", err);
+      setMetaError(err.message ?? "Flow bilgisi güncellenemedi");
+    } finally {
+      setMetaSaving(false);
+    }
+  }, [flowId, flowName, flowDescription]);
+
+  const handleFlowNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      (e.currentTarget as HTMLInputElement).blur();
+    }
+  };
+
+  const handleFlowDescriptionKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      (e.currentTarget as HTMLTextAreaElement).blur();
+    }
+  };
+
+  // ----------------- DIAGRAM HANDLERS -----------------
+  const onNodesChange = useCallback(
+    (changes: any) => {
+      onNodesChangeBase(changes);
+      triggerAutoSave();
+    },
+    [onNodesChangeBase, triggerAutoSave]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: any) => {
+      onEdgesChangeBase(changes);
+      triggerAutoSave();
+    },
+    [onEdgesChangeBase, triggerAutoSave]
+  );
+
+  const onConnect = useCallback(
+    (params: any) => {
+      setEdges((eds: any) => addEdge({ ...params, animated: true }, eds));
+      triggerAutoSave();
+    },
+    [triggerAutoSave]
+  );
+
+  const onNodeClick = useCallback((_: any, node: any) => {
+    setSelectedNodeId(node.id);
+  }, []);
+
+  // ----------------- SELECTED NODE / DATA -----------------
+  const selectedNode =
+    selectedNodeId != null
+      ? nodes.find((n: any) => n.id === selectedNodeId) ?? null
+      : null;
+
+  const selectedData: NodeData | null = selectedNode?.data ?? null;
+
+  const updateSelectedNodeData = useCallback(
+    (patch: Partial<NodeData>) => {
+      if (!selectedNodeId) return;
+
+      setNodes((nds: any[]) =>
+        nds.map((node: any) => {
+          if (node.id !== selectedNodeId) return node;
+          return {
+            ...node,
+            data: {
+              ...(node.data || {}),
+              ...patch,
+            },
+          };
+        })
+      );
+
+      triggerAutoSave();
+    },
+    [selectedNodeId, setNodes, triggerAutoSave]
+  );
+
+  // 🔹 Seçili node'u kopyala
+  const duplicateSelectedNode = useCallback(() => {
+    if (!selectedNodeId) return;
+
+    let newId: string | null = null;
+
+    setNodes((nds: any[]) => {
+      const original = nds.find((n: any) => n.id === selectedNodeId);
+      if (!original) return nds;
+
+      newId = `${original.id}_copy_${Date.now()}`;
+
+      const newNode = {
+        ...original,
+        id: newId,
+        position: {
+          x: (original.position?.x ?? 0) + 50,
+          y: (original.position?.y ?? 0) + 50,
+        },
+        data: {
+          ...(original.data || {}),
+          label: (original.data?.label || "Node") + " (kopya)",
+        },
+      };
+
+      return [...nds, newNode];
+    });
+
+    if (newId) {
+      setSelectedNodeId(newId);
+    }
+
+    triggerAutoSave();
+  }, [selectedNodeId, setNodes, triggerAutoSave]);
+
+  // ----------------- NODE ADDERS -----------------
+  const addStartNode = () => {
+    const newNode = {
+      id: `start_${Date.now()}`,
+      type: "default",
+      position: { x: 100, y: 100 },
+      data: { label: "Start", type: "start" },
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addHttpNode = () => {
+    const newNode = {
+      id: `http_${Date.now()}`,
+      type: "default",
+      position: { x: 350, y: 100 },
+      data: {
+        label: "HTTP Request",
+        type: "http_request",
+        url: "https://example.com",
+        method: "GET",
+      },
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  // IF NODE
+  const addIfNode = () => {
+    const newNode = {
+      id: `if_${Date.now()}`,
+      type: "default",
+      position: { x: 600, y: 100 },
+      data: {
+        label: "IF status == 200",
+        type: "if",
+        mode: "status_eq",
+        expected: 200,
+      },
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  // Ping template
+  const createPingTemplate = () => {
+    const startId = `start_${Date.now()}`;
+    const httpId = `http_${Date.now() + 1}`;
+
+    const startNode = {
+      id: startId,
+      type: "default",
+      position: { x: 100, y: 150 },
+      data: { label: "Start", type: "start" },
+    };
+
+    const httpNode = {
+      id: httpId,
+      type: "default",
+      position: { x: 350, y: 150 },
+      data: {
+        label: "Ping HTTP",
+        type: "http_request",
+        url: "https://httpbin.org/get",
+        method: "GET",
+      },
+    };
+
+    const edge = {
+      id: `e_${startId}_${httpId}`,
+      source: startId,
+      target: httpId,
+      animated: true,
+    };
+
+    setSelectedNodeId(null);
+    setNodes([startNode, httpNode]);
+    setEdges([edge]);
+
+    triggerAutoSave();
+  };
+
+  // ----------------- MANUAL SAVE -----------------
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+
+      await fetch(`/api/flows/${flowId}/diagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes, edges }),
+      });
+
+      alert("Kaydedildi!");
+    } catch (err: any) {
+        setError(err.message ?? "Kaydederken hata oluştu");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ----------------- RUN FLOW -----------------
+  const handleRun = async () => {
+    try {
+      setRunning(true);
+      setError(null);
+
+      const res = await fetch(`/api/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flow_id: flowId }),
+      });
+
+      const json = await res.json();
+      console.log("RUN DEBUG:", json);
+
+      if (!res.ok) {
+        throw new Error(json.error || "Run API error");
+      }
+
+      const newRunId: string | undefined =
+        json.run?.id || json.id || json.run_id;
+
+      if (!newRunId) {
+        throw new Error("run_id cevaptan alınamadı");
+      }
+
+      setRunId(newRunId);
+
+      const execRes = await fetch(`/api/run/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: newRunId }),
+      });
+
+      const execJson = await execRes.json();
+      console.log("EXECUTE DEBUG:", execJson);
+
+      if (!execRes.ok) {
+        throw new Error(execJson.error || "Execute API error");
+      }
+    } catch (err: any) {
+      setError(err.message ?? "Çalıştırırken hata oluştu");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // ----------------- RENDER -----------------
+  if (loading) {
+    return (
+      <div className="flex h-screen justify-center items-center text-gray-300">
+        Yükleniyor...
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
+      {/* ORTA KISIM: sidebar + canvas */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* SOL PANEL */}
+        <div className="w-72 bg-slate-950 border-r border-slate-800 p-4 flex flex-col gap-4 overflow-y-auto">
+          {/* Geri butonu */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => router.push("/")}
+              className="text-xs text-slate-300 hover:text-white flex items-center gap-1"
+            >
+              <span>←</span>
+              <span>Flow listesine dön</span>
+            </button>
+          </div>
+
+          {/* Flow meta */}
+          <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <p className="text-[11px] font-semibold text-slate-300 mb-1">
+              Flow Bilgileri
+            </p>
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1">
+                Flow adı
+              </label>
+              <input
+                type="text"
+                value={flowName}
+                onChange={(e) => setFlowName(e.target.value)}
+                onBlur={saveFlowMeta}
+                onKeyDown={handleFlowNameKeyDown}
+                placeholder="Flow adı"
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1">
+                Açıklama (opsiyonel)
+              </label>
+              <textarea
+                rows={2}
+                value={flowDescription}
+                onChange={(e) => setFlowDescription(e.target.value)}
+                onBlur={saveFlowMeta}
+                onKeyDown={handleFlowDescriptionKeyDown}
+                placeholder="Bu flow ne yapıyor?"
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs resize-none focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] mt-1">
+              {metaSaving && (
+                <span className="text-green-400">Bilgiler kaydediliyor...</span>
+              )}
+              {metaError && (
+                <span className="text-red-400">Hata: {metaError}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Node araçları */}
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-2">
+            <p className="text-[11px] font-semibold text-slate-300 mb-1">
+              Node Araçları
+            </p>
+            <button
+              onClick={addStartNode}
+              className="w-full bg-green-600/90 hover:bg-green-600 rounded px-3 py-1 text-xs"
+            >
+              Start Node Ekle
+            </button>
+
+            <button
+              onClick={addHttpNode}
+              className="w-full bg-yellow-600/90 hover:bg-yellow-600 rounded px-3 py-1 text-xs"
+            >
+              HTTP Node Ekle
+            </button>
+
+            <button
+              onClick={addIfNode}
+              className="w-full bg-orange-600/90 hover:bg-orange-600 rounded px-3 py-1 text-xs"
+            >
+              IF Node Ekle
+            </button>
+
+            <button
+              onClick={createPingTemplate}
+              className="w-full bg-blue-600/90 hover:bg-blue-600 rounded px-3 py-1 text-xs"
+            >
+              Ping Flow Oluştur
+            </button>
+          </div>
+
+          {/* Çalıştırma */}
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-2">
+            <p className="text-[11px] font-semibold text-slate-300 mb-1">
+              Çalıştırma
+            </p>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-full rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-60 px-3 py-1 text-xs"
+            >
+              {saving ? "Kaydediliyor..." : "Kaydet"}
+            </button>
+
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="w-full rounded bg-purple-600 hover:bg-purple-500 disabled:opacity-60 px-3 py-1 text-xs"
+            >
+              {running ? "Çalıştırılıyor..." : "Çalıştır"}
+            </button>
+
+            {error && (
+              <p className="mt-1 text-[11px] text-red-400">Hata: {error}</p>
+            )}
+          </div>
+
+          {/* NODE SETTINGS */}
+          {selectedData && (
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-3">
+              <p className="text-[11px] font-semibold text-slate-300">
+                Seçili Node Ayarları
+              </p>
+
+              <div>
+                <p className="font-semibold text-[11px] mb-1">Label</p>
+                <input
+                  type="text"
+                  value={selectedData.label ?? ""}
+                  onChange={(e) =>
+                    updateSelectedNodeData({ label: e.target.value })
+                  }
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+                />
+              </div>
+
+              {selectedData.type === "http_request" && (
+                <>
+                  <div>
+                    <p className="font-semibold text-[11px] mb-1">URL</p>
+                    <input
+                      type="text"
+                      value={selectedData.url ?? ""}
+                      onChange={(e) =>
+                        updateSelectedNodeData({ url: e.target.value })
+                      }
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-[11px] mb-1">Method</p>
+                    <select
+                      value={selectedData.method ?? "GET"}
+                      onChange={(e) =>
+                        updateSelectedNodeData({ method: e.target.value })
+                      }
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <option>GET</option>
+                      <option>POST</option>
+                      <option>PUT</option>
+                      <option>DELETE</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {selectedData.type === "if" && (
+                <>
+                  <div>
+                    <p className="font-semibold text-[11px] mb-1">
+                      Koşul tipi
+                    </p>
+                    <select
+                      value={selectedData.mode ?? "status_eq"}
+                      onChange={(e) =>
+                        updateSelectedNodeData({ mode: e.target.value })
+                      }
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="status_eq">
+                        Son status == 200?
+                      </option>
+                      <option value="ok_true">
+                        Son ok == true?
+                      </option>
+                    </select>
+                  </div>
+
+                  {(selectedData.mode ?? "status_eq") === "status_eq" && (
+                    <div>
+                      <p className="font-semibold text-[11px] mb-1">
+                        Beklenen status
+                      </p>
+                      <input
+                        type="number"
+                        value={selectedData.expected ?? 200}
+                        onChange={(e) =>
+                          updateSelectedNodeData({
+                            expected: Number(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              <button
+                onClick={duplicateSelectedNode}
+                className="mt-1 w-full rounded bg-slate-700 hover:bg-slate-600 px-2 py-1 text-[11px]"
+              >
+                Bu node&apos;u kopyala
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* CANVAS (ESKİ, ÇALIŞAN YAPI) */}
+        <div className="flex-1">
+          <div
+            style={{
+              width: "100%",
+              height: "600px",
+              position: "relative",
+            }}
+          >
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={onNodeClick}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              style={{ width: "100%", height: "100%" }}
+            >
+              <Background />
+              <Controls />
+              <MiniMap />
+            </ReactFlow>
+
+            <ZoomPanel />
+            <AutoSaveIndicator autoSaving={autoSaving} />
+          </div>
+        </div>
+      </div>
+
+      {/* ALT PANEL: Run geçmişi + loglar */}
+      <div className="border-t border-slate-800 bg-black h-60 min-h-[220px]">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-full">
+          <RunHistoryPanel
+            flowId={flowId}
+            selectedRunId={runId}
+            onSelectRun={(id) => setRunId(id)}
+          />
+          <RunOutputPanel runId={runId} />
+        </div>
+      </div>
+    </div>
+  );
+}

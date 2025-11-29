@@ -1,0 +1,10 @@
+﻿
+FullName                                                                                       
+--------                                                                                       
+C:\Users\Gumaman\Desktop\FlowCraft\flowcraft-app\src\app\flows\page.tsx                        
+C:\Users\Gumaman\Desktop\FlowCraft\flowcraft-app\src\app\flows\[id]\FlowEditorClient.tsx       
+C:\Users\Gumaman\Desktop\FlowCraft\flowcraft-app\src\app\flows\[id]\FlowEditorClientWrapper.tsx
+C:\Users\Gumaman\Desktop\FlowCraft\flowcraft-app\src\app\flows\[id]\page.tsx                   
+C:\Users\Gumaman\Desktop\FlowCraft\flowcraft-app\src\app\flows\[id]\wrapper.tsx                
+
+

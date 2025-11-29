@@ -1,0 +1,53 @@
+/* src/app/globals.css */
+
+/* Eğer Tailwind kuruluysa bu üç satır şart */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Küçük global ayarlar */
+html,
+body,
+:root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+
+  /* Premium mavi tonlu dark arka plan */
+  background-color: #020617; /* temel koyu zemin (slate-950) */
+
+  /* Üstten gelen premium mavi glow */
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.25), transparent 55%),
+    radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.18), transparent 55%);
+
+  color: #e5e7eb; /* slate-200 */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+/* React Flow default node kutusunu nötrle
+   (arkadaki çizgili/siyah kutu kaybolsun) */
+.react-flow__node-default {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* FlowCraft node kartları: her zaman beyaz ve okunaklı olsun */
+.react-flow__node-default > div {
+  background-color: #ffffff !important; /* kart beyaz */
+  color: #020617 !important;            /* yazılar koyu */
+}
+
+/* Canvas’ta el işareti için ufak UX dokunuşu */
+.react-flow__pane {
+  cursor: grab;
+}
+
+.react-flow__pane:active {
+  cursor: grabbing;
+}
