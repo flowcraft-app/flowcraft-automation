@@ -1,12 +1,6 @@
 import { supabase } from "../../../lib/supabaseClient";
 import { NextResponse } from "next/server";
 
-function isValidUuid(value: string): boolean {
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-    value
-  );
-}
-
 // 🔹 RUN OLUŞTUR (POST /api/run)
 export async function POST(request: Request) {
   try {
@@ -23,13 +17,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // UUID format kontrolü
-    if (!isValidUuid(flow_id)) {
-      return NextResponse.json(
-        { error: "invalid flow_id format" },
-        { status: 400 }
-      );
-    }
+    // ❌ Artık UUID format kontrolü yapmıyoruz.
+    // flow_id Supabase tarafında TEXT kolonuna yazılacak.
 
     // 1) RUN oluştur
     const { data, error } = await supabase
@@ -85,12 +74,8 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!isValidUuid(flowId)) {
-      return NextResponse.json(
-        { error: "invalid flow_id format" },
-        { status: 400 }
-      );
-    }
+    // ❌ Burada da artık UUID format kontrolü yok.
+    // flow_runs.flow_id TEXT olduğu için direkt eşitlik filtresi kullanıyoruz.
 
     // default 50, max 100
     let limit = 50;
