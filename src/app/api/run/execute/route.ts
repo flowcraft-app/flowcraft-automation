@@ -13,6 +13,13 @@ type AnyEdge = {
   target: string;
 };
 
+// 🌐 Ortama göre BASE_URL (dev: localhost, prod: Vercel domain)
+const BASE_URL =
+  process.env.NEXT_PUBLIC_FLOWCRAFT_BASE_URL ||
+  (process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000");
+
 // 🔹 lastOutput içinden "body.status" gibi alanları okumak için küçük helper
 function getByPath(obj: any, path?: string): any {
   if (!path) return obj;
@@ -169,17 +176,27 @@ async function executeRun(runId: string) {
 
         // HTTP NODE
         else if (nodeType === "http_request" || nodeType === "http") {
-          const url =
+          const rawUrl =
             currentNode.data?.url ||
             currentNode.data?.endpoint ||
             currentNode.data?.urlTemplate;
           const method = (currentNode.data?.method || "GET").toUpperCase();
 
-          if (!url) {
+          if (!rawUrl || typeof rawUrl !== "string") {
             output = { error: "HTTP node için URL tanımlı değil" };
           } else {
+            // 🔹 URL tam mı (http/https ile mi başlıyor) yoksa relative mi (/api/flows gibi)?
+            let finalUrl = rawUrl;
+            const isAbsolute = /^https?:\/\//i.test(rawUrl);
+
+            if (!isAbsolute) {
+              // /api/flows şeklindeyse BASE_URL + path
+              const needsSlash = !rawUrl.startsWith("/");
+              finalUrl = `${BASE_URL}${needsSlash ? "/" : ""}${rawUrl}`;
+            }
+
             try {
-              const res = await fetch(url, { method });
+              const res = await fetch(finalUrl, { method });
 
               const raw = await res.text();
               let parsed: any = null;
@@ -194,6 +211,8 @@ async function executeRun(runId: string) {
                 ok: res.ok,
                 headers: Object.fromEntries(res.headers.entries() as any),
                 body: parsed ?? raw,
+                url: finalUrl, // log'a gerçek istek atılan URL'yi yazıyoruz
+                method,
               };
             } catch (err: any) {
               console.error("HTTP node error:", err);
@@ -201,7 +220,10 @@ async function executeRun(runId: string) {
                 error:
                   err?.message ||
                   "HTTP isteği sırasında beklenmeyen bir hata oluştu",
-                url,
+                url: rawUrl,
+                resolvedUrl: !/^https?:\/\//i.test(rawUrl)
+                  ? `${BASE_URL}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`
+                  : rawUrl,
                 method,
               };
             }
@@ -416,7 +438,11 @@ async function executeRun(runId: string) {
         else if (nodeType === "set_fields" || nodeType === "set") {
           const assignments = currentNode.data?.assignments;
 
-          if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+          if (
+            !assignments ||
+            !Array.isArray(assignments) ||
+            assignments.length === 0
+          ) {
             output = {
               info: "Set node: assignments boş, değişiklik yapılmadı",
             };
