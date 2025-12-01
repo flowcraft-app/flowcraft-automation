@@ -987,7 +987,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
       data: {
         label: "HTTP Request",
         type: "http_request",
-        url: "http://localhost:3000/api/env",
+        url: "/api/env", // 🔁 BURASI GÜNCEL
         method: "GET",
       },
     };
@@ -1129,7 +1129,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
       data: {
         label: "Ping HTTP",
         type: "http_request",
-        url: "http://localhost:3000/api/env",
+        url: "/api/env", // 🔁 BURASI DA GÜNCEL
         method: "GET",
       },
     };
