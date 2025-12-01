@@ -388,8 +388,8 @@ function NodeSettingsPanel({
             Execution Data
           </p>
           <p className="text-[11px] text-slate-300">
-            Bu node çalıştığında runId, flowId ve son lastOutput snapshot&apos;ını
-            loglarda gösterir. Ek bir ayar gerekmez.
+            Bu node çalıştığında runId, flowId ve son lastOutput
+            snapshot&apos;ını loglarda gösterir. Ek bir ayar gerekmez.
           </p>
         </div>
       )}
@@ -460,7 +460,8 @@ function NodeSettingsPanel({
               "
             />
             <p className="mt-1 text-[11px] text-slate-300">
-              Bu metin loglarda ve run durumunda hata sebebi olarak saklanacak.
+              Bu metin loglarda ve run durumunda hata sebebi olarak
+              saklanacak.
             </p>
           </div>
         </>
@@ -1569,29 +1570,12 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
     runStatusBgClass = "bg-red-600";
   }
 
-  const runStatusPill = (
-    <span
-      className={`
-        inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
-        text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
-      `}
-    >
-      <span
-        className={`
-          w-2.5 h-2.5 rounded-full ${runStatusDotClass}
-          ${lastRunStatus === "running" ? "animate-pulse" : ""}
-        `}
-      />
-      {runStatusLabel}
-    </span>
-  );
-
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
-      {/* ÜST BAR */}
+      {/* ÜST BAR: Sol = title, Orta = Run pill, Sağ = meta + Kaydet/Run */}
       <header className="h-12 flex items-center px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
-        {/* Sol: geri + başlık */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Sol kısım */}
+        <div className="flex items-center gap-3 w-1/3 min-w-0">
           <button
             onClick={() => router.push("/")}
             className="text-xs text-slate-300 hover:text-white flex items-center gap-1"
@@ -1602,7 +1586,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
 
           <div className="h-5 w-px bg-slate-700" />
 
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-col">
             <span className="text-[10px] uppercase tracking-wide text-slate-500">
               FlowCraft
             </span>
@@ -1612,11 +1596,26 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
           </div>
         </div>
 
-        {/* Orta: son run pill TAM ORTADA */}
-        <div className="flex-1 flex justify-center">{runStatusPill}</div>
+        {/* Orta kısım → Run pill tam ortada */}
+        <div className="flex items-center justify-center w-1/3">
+          <span
+            className={`
+              inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
+              text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
+            `}
+          >
+            <span
+              className={`
+                w-2.5 h-2.5 rounded-full ${runStatusDotClass}
+                ${lastRunStatus === "running" ? "animate-pulse" : ""}
+              `}
+            />
+            {runStatusLabel}
+          </span>
+        </div>
 
-        {/* Sağ: meta + Kaydet / Run */}
-        <div className="flex items-center justify-end gap-2 flex-1">
+        {/* Sağ kısım → meta + Kaydet / Run (spinnerlar buton içinde, yazının SAĞINDA) */}
+        <div className="flex items-center justify-end gap-2 w-1/3">
           {metaSaving && (
             <span className="text-[10px] text-emerald-300">
               Flow bilgileri kaydediliyor...
@@ -1632,6 +1631,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             </span>
           )}
 
+          {/* Kaydet butonu - spinner sağda */}
           <button
             onClick={handleSave}
             disabled={saving}
@@ -1643,6 +1643,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             )}
           </button>
 
+          {/* Run butonu - spinner sağda */}
           <button
             onClick={handleRun}
             disabled={running}
