@@ -1572,7 +1572,8 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
       {/* ÜST BAR */}
-      <header className="relative h-12 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+      <header className="h-12 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        {/* Sol taraf: geri + başlık */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/")}
@@ -1592,47 +1593,9 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {metaSaving && (
-            <span className="text-[10px] text-emerald-300">
-              Flow bilgileri kaydediliyor...
-            </span>
-          )}
-          {metaError && (
-            <span className="text-[10px] text-red-400">{metaError}</span>
-          )}
-          {metaSaved && !metaSaving && !metaError && (
-            <span className="text-[10px] text-emerald-300 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Kaydedildi
-            </span>
-          )}
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2"
-          >
-            {saving && (
-              <span className="w-3 h-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
-            )}
-            <span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
-          </button>
-
-          <button
-            onClick={handleRun}
-            disabled={running}
-            className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2"
-          >
-            {running && (
-              <span className="w-3 h-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
-            )}
-            <span>{running ? "Çalıştırılıyor..." : "Run"}</span>
-          </button>
-        </div>
-
-        {/* Ortada RUN DURUM SİMGESİ */}
-        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        {/* Sağ taraf: run durumu + meta + butonlar */}
+        <div className="flex items-center gap-4">
+          {/* RUN DURUM SİMGESİ */}
           <span
             className={`
               inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
@@ -1647,6 +1610,46 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             />
             {runStatusLabel}
           </span>
+
+          {/* Meta + Kaydet / Run */}
+          <div className="flex items-center gap-2">
+            {metaSaving && (
+              <span className="text-[10px] text-emerald-300">
+                Flow bilgileri kaydediliyor...
+              </span>
+            )}
+            {metaError && (
+              <span className="text-[10px] text-red-400">{metaError}</span>
+            )}
+            {metaSaved && !metaSaving && !metaError && (
+              <span className="text-[10px] text-emerald-300 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                Kaydedildi
+              </span>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2"
+            >
+              {saving && (
+                <span className="w-3 h-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+              )}
+              <span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
+            </button>
+
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2"
+            >
+              {running && (
+                <span className="w-3 h-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+              )}
+              <span>{running ? "Çalıştırılıyor..." : "Run"}</span>
+            </button>
+          </div>
         </div>
       </header>
 
