@@ -1573,8 +1573,9 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
       {/* ÜST BAR */}
-      <header className="h-12 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
-        <div className="flex items-center gap-3">
+      <header className="h-12 flex items-center px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        {/* SOL: Back + Flow title */}
+        <div className="flex items-center gap-3 flex-1">
           <button
             onClick={() => router.push("/")}
             className="text-xs text-slate-300 hover:text-white flex items-center gap-1"
@@ -1593,23 +1594,8 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {metaSaving && (
-            <span className="text-[10px] text-emerald-300">
-              Flow bilgileri kaydediliyor...
-            </span>
-          )}
-          {metaError && (
-            <span className="text-[10px] text-red-400">{metaError}</span>
-          )}
-          {metaSaved && !metaSaving && !metaError && (
-            <span className="text-[10px] text-emerald-300 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Kaydedildi
-            </span>
-          )}
-
-          {/* Son run durum pill'i → Kaydet / Run butonlarının yanında */}
+        {/* ORTA: Son run pill → tam ortada */}
+        <div className="flex-1 flex justify-center">
           <span
             className={`
               inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
@@ -1624,8 +1610,11 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             />
             {runStatusLabel}
           </span>
+        </div>
 
-          {/* 🔹 Kaydet butonu: text solda, spinner SAĞDA */}
+        {/* SAĞ: Kaydet + Run butonları */}
+        <div className="flex items-center gap-2 justify-end flex-1">
+          {/* Kaydet butonu: sadece text + sağda spinner */}
           <button
             onClick={handleSave}
             disabled={saving}
@@ -1637,7 +1626,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             )}
           </button>
 
-          {/* 🔹 Run butonu: text solda, spinner SAĞDA */}
+          {/* Run butonu: sadece text + sağda spinner */}
           <button
             onClick={handleRun}
             disabled={running}
