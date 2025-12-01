@@ -388,8 +388,8 @@ function NodeSettingsPanel({
             Execution Data
           </p>
           <p className="text-[11px] text-slate-300">
-            Bu node çalıştığında runId, flowId ve son lastOutput snapshot&apos;ını
-            loglarda gösterir. Ek bir ayar gerekmez.
+            Bu node çalıştığında runId, flowId ve son lastOutput
+            snapshot&apos;ını loglarda gösterir. Ek bir ayar gerekmez.
           </p>
         </div>
       )}
@@ -1573,7 +1573,6 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
       {/* ÜST BAR */}
       <header className="h-12 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
-        {/* Sol taraf: geri + başlık */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/")}
@@ -1593,8 +1592,8 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
           </div>
         </div>
 
-        {/* Sağ taraf: run durumu + meta + butonlar */}
-        <div className="flex items-center gap-4">
+        {/* Sağ tarafta: run status pill + meta + butonlar */}
+        <div className="flex items-center gap-3">
           {/* RUN DURUM SİMGESİ */}
           <span
             className={`
@@ -1611,7 +1610,6 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             {runStatusLabel}
           </span>
 
-          {/* Meta + Kaydet / Run */}
           <div className="flex items-center gap-2">
             {metaSaving && (
               <span className="text-[10px] text-emerald-300">
