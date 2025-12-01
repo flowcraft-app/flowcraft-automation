@@ -1572,10 +1572,9 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
-      {/* ÜST BAR: Sol = title, Orta = Run pill, Sağ = meta + Kaydet/Run */}
-      <header className="h-12 flex items-center px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
-        {/* Sol kısım */}
-        <div className="flex items-center gap-3 w-1/3 min-w-0">
+      {/* ÜST BAR */}
+      <header className="h-12 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/")}
             className="text-xs text-slate-300 hover:text-white flex items-center gap-1"
@@ -1590,32 +1589,11 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             <span className="text-[10px] uppercase tracking-wide text-slate-500">
               FlowCraft
             </span>
-            <span className="text-xs font-semibold truncate">
-              {flowTitle}
-            </span>
+            <span className="text-xs font-semibold">{flowTitle}</span>
           </div>
         </div>
 
-        {/* Orta kısım → Run pill tam ortada */}
-        <div className="flex items-center justify-center w-1/3">
-          <span
-            className={`
-              inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
-              text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
-            `}
-          >
-            <span
-              className={`
-                w-2.5 h-2.5 rounded-full ${runStatusDotClass}
-                ${lastRunStatus === "running" ? "animate-pulse" : ""}
-              `}
-            />
-            {runStatusLabel}
-          </span>
-        </div>
-
-        {/* Sağ kısım → meta + Kaydet / Run (spinnerlar buton içinde, yazının SAĞINDA) */}
-        <div className="flex items-center justify-end gap-2 w-1/3">
+        <div className="flex items-center gap-2">
           {metaSaving && (
             <span className="text-[10px] text-emerald-300">
               Flow bilgileri kaydediliyor...
@@ -1631,11 +1609,27 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             </span>
           )}
 
-          {/* Kaydet butonu - spinner sağda */}
+          {/* Son run durum pill'i → Kaydet / Run butonlarının yanında */}
+          <span
+            className={`
+              inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
+              text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
+            `}
+          >
+            <span
+              className={`
+                w-2.5 h-2.5 rounded-full ${runStatusDotClass}
+                ${lastRunStatus === "running" ? "animate-pulse" : ""}
+              `}
+            />
+            {runStatusLabel}
+          </span>
+
+          {/* 🔹 Kaydet butonu: text solda, spinner SAĞDA */}
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2"
+            className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2 justify-center"
           >
             <span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
             {saving && (
@@ -1643,11 +1637,11 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             )}
           </button>
 
-          {/* Run butonu - spinner sağda */}
+          {/* 🔹 Run butonu: text solda, spinner SAĞDA */}
           <button
             onClick={handleRun}
             disabled={running}
-            className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2"
+            className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2 justify-center"
           >
             <span>{running ? "Çalıştırılıyor..." : "Run"}</span>
             {running && (
