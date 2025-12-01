@@ -281,10 +281,13 @@ async function executeRun(runId: string) {
 
         // 🔹 LOG NODE (sadece log atar, lastOutput'u BOZMADAN devam eder)
         else if (nodeType === "log") {
-          const message =
+          const rawMessage =
             currentNode.data?.message ||
             currentNode.data?.label ||
             "Log node çalıştı";
+
+          const message =
+            typeof rawMessage === "string" ? rawMessage.trim() : rawMessage;
 
           output = {
             message,
@@ -340,15 +343,20 @@ async function executeRun(runId: string) {
 
         // 🔹 STOP & ERROR NODE (flow'u hata ile sonlandırır)
         else if (nodeType === "stop_error" || nodeType === "stop") {
-          const code =
+          const rawCode =
             currentNode.data?.code ||
             currentNode.data?.errorCode ||
             "manual_stop";
 
-          const reason =
+          const rawReason =
             currentNode.data?.reason ||
             currentNode.data?.message ||
             "Stop&Error node akışı durdurdu.";
+
+          const code =
+            typeof rawCode === "string" ? rawCode.trim() : rawCode;
+          const reason =
+            typeof rawReason === "string" ? rawReason.trim() : rawReason;
 
           output = {
             code,
