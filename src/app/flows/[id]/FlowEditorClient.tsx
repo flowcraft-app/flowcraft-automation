@@ -1573,7 +1573,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
       {/* ÜST BAR */}
-      <header className="h-12 flex items-center px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+      <header className="relative h-12 flex items-center px-4 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
         {/* SOL: Back + Flow title */}
         <div className="flex items-center gap-3 flex-1">
           <button
@@ -1592,24 +1592,6 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             </span>
             <span className="text-xs font-semibold">{flowTitle}</span>
           </div>
-        </div>
-
-        {/* ORTA: Son run pill → tam ortada */}
-        <div className="flex-1 flex justify-center">
-          <span
-            className={`
-              inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
-              text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
-            `}
-          >
-            <span
-              className={`
-                w-2.5 h-2.5 rounded-full ${runStatusDotClass}
-                ${lastRunStatus === "running" ? "animate-pulse" : ""}
-              `}
-            />
-            {runStatusLabel}
-          </span>
         </div>
 
         {/* SAĞ: Kaydet + Run butonları */}
@@ -1637,6 +1619,24 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
               <span className="w-3 h-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
             )}
           </button>
+        </div>
+
+        {/* ORTA: Son run pill → tam ortada, absolute */}
+        <div className="absolute left-1/2 -translate-x-1/2">
+          <span
+            className={`
+              inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
+              text-[11px] shadow-lg ${runStatusBgClass} ${runStatusBorderClass}
+            `}
+          >
+            <span
+              className={`
+                w-2.5 h-2.5 rounded-full ${runStatusDotClass}
+                ${lastRunStatus === "running" ? "animate-pulse" : ""}
+              `}
+            />
+            {runStatusLabel}
+          </span>
         </div>
       </header>
 
