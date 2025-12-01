@@ -1148,6 +1148,131 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
     triggerAutoSave();
   };
 
+  // 🔹 JSONPlaceholder örnek flow template’i
+  const createJsonPlaceholderTemplate = () => {
+    const base = Date.now();
+
+    const startId = `start_${base}`;
+    const httpId = `http_${base + 1}`;
+    const formatterId = `formatter_${base + 2}`;
+    const ifId = `if_${base + 3}`;
+    const logId = `log_${base + 4}`;
+    const stopId = `stop_${base + 5}`;
+
+    const startNode = {
+      id: startId,
+      type: "default",
+      position: { x: 100, y: 150 },
+      data: { label: "Start", type: "start" },
+    };
+
+    const httpNode = {
+      id: httpId,
+      type: "default",
+      position: { x: 350, y: 150 },
+      data: {
+        label: "JSONPlaceholder GET",
+        type: "http_request",
+        url: "https://jsonplaceholder.typicode.com/posts/1",
+        method: "GET",
+      } as NodeData,
+    };
+
+    const formatterNode = {
+      id: formatterId,
+      type: "default",
+      position: { x: 600, y: 150 },
+      data: {
+        label: "Title → UPPER",
+        type: "formatter",
+        mode: "to_upper",
+        fieldPath: "body.title",
+        targetPath: "body.title_upper",
+      } as NodeData,
+    };
+
+    const ifNode = {
+      id: ifId,
+      type: "default",
+      position: { x: 850, y: 150 },
+      data: {
+        label: "IF status == 200",
+        type: "if",
+        mode: "status_eq",
+        expected: 200,
+      } as NodeData,
+    };
+
+    const logNode = {
+      id: logId,
+      type: "default",
+      position: { x: 1100, y: 150 },
+      data: {
+        label: "JSONPlaceholder Log",
+        type: "log",
+        message: "JSONPlaceholder sonucu",
+      } as NodeData,
+    };
+
+    const stopNode = {
+      id: stopId,
+      type: "default",
+      position: { x: 1350, y: 150 },
+      data: {
+        label: "Stop & Error",
+        type: "stop_error",
+        code: "ERR_MANUAL_STOP",
+        reason: "JSONPlaceholder örnek akış burada bitti.",
+      } as NodeData,
+    };
+
+    const edges = [
+      {
+        id: `e_${startId}_${httpId}`,
+        source: startId,
+        target: httpId,
+        animated: true,
+      },
+      {
+        id: `e_${httpId}_${formatterId}`,
+        source: httpId,
+        target: formatterId,
+        animated: true,
+      },
+      {
+        id: `e_${formatterId}_${ifId}`,
+        source: formatterId,
+        target: ifId,
+        animated: true,
+      },
+      {
+        id: `e_${ifId}_${logId}`,
+        source: ifId,
+        target: logId,
+        animated: true,
+      },
+      {
+        id: `e_${logId}_${stopId}`,
+        source: logId,
+        target: stopId,
+        animated: true,
+      },
+    ];
+
+    setSelectedNodeId(null);
+    setNodes([
+      startNode,
+      httpNode,
+      formatterNode,
+      ifNode,
+      logNode,
+      stopNode,
+    ]);
+    setEdges(edges);
+
+    triggerAutoSave();
+  };
+
   // ----------------- MANUAL SAVE -----------------
   const handleSave = useCallback(async () => {
     try {
@@ -1562,6 +1687,13 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
                 className="w-full bg-blue-600/90 hover:bg-blue-600 rounded px-3 py-1 text-[11px]"
               >
                 Ping Flow Oluştur
+              </button>
+
+              <button
+                onClick={createJsonPlaceholderTemplate}
+                className="w-full bg-amber-600/90 hover:bg-amber-500 rounded px-3 py-1 text-[11px]"
+              >
+                JSONPlaceholder Flow Oluştur
               </button>
             </div>
           </aside>
