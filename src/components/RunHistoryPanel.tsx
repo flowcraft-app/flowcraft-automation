@@ -49,6 +49,25 @@ export default function RunHistoryPanel({
     }
   };
 
+  // 🔹 “3 dk önce”, “2 saat önce”, “5 gün önce” gibi basit relative time
+  const formatRelative = (iso?: string) => {
+    if (!iso) return "";
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return "";
+
+    const now = Date.now();
+    const diffMs = now - t;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 60) return "az önce";
+    if (diffMin < 60) return `${diffMin} dk önce`;
+    if (diffHour < 24) return `${diffHour} saat önce`;
+    return `${diffDay} gün önce`;
+  };
+
   const renderStatusBadge = (status: string) => {
     let label = status;
     let classes = "bg-slate-800 text-slate-200 border border-slate-500";
@@ -85,6 +104,22 @@ export default function RunHistoryPanel({
         {label}
       </span>
     );
+  };
+
+  // 🔹 Status için küçük renkli nokta (satır başında)
+  const getStatusDotClass = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "bg-emerald-400";
+      case "error":
+        return "bg-red-400";
+      case "running":
+        return "bg-amber-300";
+      case "queued":
+        return "bg-slate-400";
+      default:
+        return "bg-slate-500";
+    }
   };
 
   /**
@@ -320,23 +355,49 @@ export default function RunHistoryPanel({
             <ul className="divide-y divide-slate-800">
               {filteredRuns.map((run) => {
                 const isActive = run.id === selectedRunId;
+
+                const rowBase =
+                  "px-3 py-2 flex items-center justify-between gap-2 cursor-pointer border-l-2 transition-colors";
+                const rowActive =
+                  "bg-slate-800/90 border-sky-400 shadow-inner";
+                const rowHover =
+                  "hover:bg-slate-900/70 border-transparent";
+
                 return (
                   <li
                     key={run.id}
                     onClick={() => onSelectRun(run.id)}
-                    className={`px-3 py-2 flex items-center justify-between gap-2 cursor-pointer ${
-                      isActive
-                        ? "bg-slate-800/80"
-                        : "hover:bg-slate-900/70"
+                    className={`${rowBase} ${
+                      isActive ? rowActive : rowHover
                     }`}
                   >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium text-[11px] text-slate-100 truncate">
-                        Run #{run.id.slice(0, 8)}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {formatDate(run.created_at)}
-                      </span>
+                    <div className="flex items-start gap-2 min-w-0">
+                      {/* Status renkli nokta */}
+                      <div className="pt-[3px]">
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${getStatusDotClass(
+                            run.status
+                          )}`}
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span
+                          className="font-medium text-[11px] text-slate-100 truncate"
+                          title={run.id}
+                        >
+                          Run #{run.id.slice(0, 8)}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {formatDate(run.created_at)}
+                          {run.created_at && (
+                            <span className="text-slate-500">
+                              {" "}
+                              · {formatRelative(run.created_at)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex flex-col items-end gap-1">
