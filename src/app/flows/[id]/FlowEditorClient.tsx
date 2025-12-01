@@ -388,8 +388,8 @@ function NodeSettingsPanel({
             Execution Data
           </p>
           <p className="text-[11px] text-slate-300">
-            Bu node çalıştığında runId, flowId ve son lastOutput
-            snapshot&apos;ını loglarda gösterir. Ek bir ayar gerekmez.
+            Bu node çalıştığında runId, flowId ve son lastOutput snapshot&apos;ını
+            loglarda gösterir. Ek bir ayar gerekmez.
           </p>
         </div>
       )}
@@ -1592,9 +1592,23 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
           </div>
         </div>
 
-        {/* Sağ tarafta: run status pill + meta + butonlar */}
-        <div className="flex items-center gap-3">
-          {/* RUN DURUM SİMGESİ */}
+        <div className="flex items-center gap-2">
+          {metaSaving && (
+            <span className="text-[10px] text-emerald-300">
+              Flow bilgileri kaydediliyor...
+            </span>
+          )}
+          {metaError && (
+            <span className="text-[10px] text-red-400">{metaError}</span>
+          )}
+          {metaSaved && !metaSaving && !metaError && (
+            <span className="text-[10px] text-emerald-300 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Kaydedildi
+            </span>
+          )}
+
+          {/* Son run durum pill'i → Kaydet / Run butonlarının yanında */}
           <span
             className={`
               inline-flex items-center gap-2 rounded-full border px-3 py-[3px]
@@ -1610,44 +1624,27 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
             {runStatusLabel}
           </span>
 
-          <div className="flex items-center gap-2">
-            {metaSaving && (
-              <span className="text-[10px] text-emerald-300">
-                Flow bilgileri kaydediliyor...
-              </span>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2"
+          >
+            {saving && (
+              <span className="w-3 h-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
             )}
-            {metaError && (
-              <span className="text-[10px] text-red-400">{metaError}</span>
-            )}
-            {metaSaved && !metaSaving && !metaError && (
-              <span className="text-[10px] text-emerald-300 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                Kaydedildi
-              </span>
-            )}
+            <span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
+          </button>
 
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded border border-sky-500/60 bg-sky-600/90 hover:bg-sky-500 px-3 py-1 text-[11px] disabled:opacity-60 flex items-center gap-2"
-            >
-              {saving && (
-                <span className="w-3 h-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
-              )}
-              <span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
-            </button>
-
-            <button
-              onClick={handleRun}
-              disabled={running}
-              className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2"
-            >
-              {running && (
-                <span className="w-3 h-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
-              )}
-              <span>{running ? "Çalıştırılıyor..." : "Run"}</span>
-            </button>
-          </div>
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className="rounded bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold disabled:opacity-60 flex items-center gap-2"
+          >
+            {running && (
+              <span className="w-3 h-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+            )}
+            <span>{running ? "Çalıştırılıyor..." : "Run"}</span>
+          </button>
         </div>
       </header>
 
