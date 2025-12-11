@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { supabase } from "../../lib/supabaseClient";
 
 type Flow = {
   id: string;
@@ -39,10 +40,59 @@ export default function FlowsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
+  // 🔐 Auth state
+  const [user, setUser] = useState<any | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const router = useRouter();
 
-  // Flow listesini yükle
+  // Kullanıcı bilgisini yükle
   useEffect(() => {
+    let isMounted = true;
+
+    async function loadUser() {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+
+        if (!isMounted) return;
+
+        if (error) {
+          console.warn("Supabase getUser (flows) hatası:", error.message);
+          setUser(null);
+        } else {
+          setUser(data?.user ?? null);
+        }
+      } catch (err) {
+        console.error("flows/getUser beklenmeyen hata:", err);
+        if (isMounted) setUser(null);
+      } finally {
+        if (isMounted) setAuthLoading(false);
+      }
+    }
+
+    loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Flow listesini yükle (sadece user varsa)
+  useEffect(() => {
+    if (!user) {
+      setFlows([]);
+      setLoading(false);
+      return;
+    }
+
     const fetchFlows = async () => {
       try {
         setLoading(true);
@@ -63,7 +113,7 @@ export default function FlowsPage() {
     };
 
     fetchFlows();
-  }, []);
+  }, [user]);
 
   // Her flow için son run'ı çek (limit=1)
   useEffect(() => {
@@ -79,9 +129,7 @@ export default function FlowsPage() {
           flows.map(async (flow) => {
             try {
               const res = await fetch(
-                `/api/run/history?flow_id=${encodeURIComponent(
-                  flow.id
-                )}&limit=1`
+                `/api/run/history?flow_id=${encodeURIComponent(flow.id)}&limit=1`
               );
               if (!res.ok) {
                 // flow için run yok veya hata → null kabul ediyoruz
@@ -544,6 +592,65 @@ export default function FlowsPage() {
     return sorted;
   }, [flows, search, sortKey]);
 
+  // 🔐 Auth state’e göre sayfa view’ları
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <p className="text-sm text-slate-400">
+          Hesap bilgilerin yükleniyor...
+        </p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4">
+        <div className="max-w-md w-full rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl text-center">
+          <h1 className="text-xl font-semibold mb-2">
+            Flow’larını görmek için giriş yap
+          </h1>
+          <p className="text-sm text-slate-400 mb-4">
+            FlowCraft şu anda oturum açmamış kullanıcılarda akış listesini
+            göstermiyor. Devam etmek için giriş yap veya hızlıca kayıt ol.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/login?redirect=${encodeURIComponent("/flows")}`
+                )
+              }
+              className="px-4 py-2 rounded-md border border-slate-600 text-sm hover:border-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              Giriş yap
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/register?redirect=${encodeURIComponent("/flows")}`
+                )
+              }
+              className="px-4 py-2 rounded-md bg-emerald-500 text-sm font-medium text-slate-950 hover:bg-emerald-400 transition-colors"
+            >
+              Kayıt ol
+            </button>
+          </div>
+          <p className="mt-3 text-[11px] text-slate-500">
+            Giriş yaptıktan sonra burada tüm flow’larını göreceksin. Hazır{" "}
+            <span className="text-emerald-300">Ping</span> ve{" "}
+            <span className="text-emerald-300">HTTP Check</span> şablonlarını
+            da tek tıkla oluşturabilirsin.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 🔐 Buradan sonrası: kullanıcı giriş yapmış durumda
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="max-w-5xl mx-auto px-4 py-6">
@@ -553,6 +660,14 @@ export default function FlowsPage() {
             <p className="text-sm text-slate-400">
               Tüm otomasyon akışlarını burada yönetebilirsin.
             </p>
+            {user?.email && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Oturum açan:{" "}
+                <span className="text-emerald-300 font-medium">
+                  {user.email}
+                </span>
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2">
@@ -632,21 +747,41 @@ export default function FlowsPage() {
         ) : filteredSortedFlows.length === 0 ? (
           <div className="border border-dashed border-slate-700 rounded-lg px-4 py-8 text-center">
             <p className="mb-2 text-sm text-slate-300">
-              Filtrelere uyan flow bulunamadı.
+              Henüz hiç flow oluşturmadın.
             </p>
             <p className="mb-4 text-xs text-slate-500">
-              Yeni bir flow oluşturabilir veya arama filtresini
-              temizleyebilirsin.
+              Yeni bir flow oluşturabilir veya hazır Ping / HTTP Check
+              şablonlarını deneyebilirsin.
             </p>
-            <button
-              onClick={handleCreateFlow}
-              disabled={creating}
-              className="rounded bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium disabled:opacity-60"
-            >
-              {creating && creatingType === "normal"
-                ? "Oluşturuluyor..."
-                : "Yeni Flow Oluştur"}
-            </button>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <button
+                onClick={handleCreatePingTemplateFlow}
+                disabled={creating}
+                className="rounded bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                {creating && creatingType === "ping"
+                  ? "Ping Flow Oluşturuluyor..."
+                  : "⚡ Ping Template Flow"}
+              </button>
+              <button
+                onClick={handleCreateHttpCheckTemplateFlow}
+                disabled={creating}
+                className="rounded bg-orange-600 hover:bg-orange-500 px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                {creating && creatingType === "httpCheck"
+                  ? "HTTP Check Flow Oluşturuluyor..."
+                  : "🧪 HTTP Check Flow"}
+              </button>
+              <button
+                onClick={handleCreateFlow}
+                disabled={creating}
+                className="rounded bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                {creating && creatingType === "normal"
+                  ? "Oluşturuluyor..."
+                  : "Yeni Flow Oluştur"}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid gap-3">

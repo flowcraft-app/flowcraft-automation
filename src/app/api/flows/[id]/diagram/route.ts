@@ -1,6 +1,16 @@
 import { NextRequest } from "next/server";
 import { supabase } from "../../../../../lib/supabaseClient";
 
+const DEFAULT_WORKSPACE_ID =
+  process.env.FLOWCRAFT_DEFAULT_WORKSPACE_ID ??
+  "abc3566e-d898-439c-9f5a-d78f6540ea42";
+
+if (!DEFAULT_WORKSPACE_ID) {
+  console.error(
+    "FLOWCRAFT_DEFAULT_WORKSPACE_ID env değişkeni tanımlı değil. Lütfen .env.local dosyasına ekleyin."
+  );
+}
+
 /**
  * GET /api/flows/[id]/diagram
  * Belirli bir flow'a ait diagram verisini döndürür.
@@ -19,10 +29,18 @@ export async function GET(
       );
     }
 
+    if (!DEFAULT_WORKSPACE_ID) {
+      return Response.json(
+        { error: "Default workspace ID tanımlı değil." },
+        { status: 500 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("flow_diagrams")
       .select("*")
       .eq("flow_id", flowId)
+      .eq("workspace_id", DEFAULT_WORKSPACE_ID)
       .maybeSingle();
 
     if (error) {
@@ -66,6 +84,13 @@ export async function POST(
       );
     }
 
+    if (!DEFAULT_WORKSPACE_ID) {
+      return Response.json(
+        { error: "Default workspace ID tanımlı değil." },
+        { status: 500 }
+      );
+    }
+
     const body = await request.json();
     const nodes = body?.nodes ?? [];
     const edges = body?.edges ?? [];
@@ -75,6 +100,7 @@ export async function POST(
       .upsert(
         {
           flow_id: flowId,
+          workspace_id: DEFAULT_WORKSPACE_ID,
           nodes,
           edges,
         },

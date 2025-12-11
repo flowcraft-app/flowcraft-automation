@@ -23,6 +23,15 @@ import { useRouter } from "next/navigation";
 import RunOutputPanel from "../../../components/RunOutputPanel";
 import RunHistoryPanel from "../../../components/RunHistoryPanel";
 import "reactflow/dist/style.css";
+import { supabase } from "../../../lib/supabaseClient"; // ⬅️ Supabase Auth
+
+// 🔑 Credential tipi (UI için basit)
+type CredentialOption = {
+  id: string;
+  name?: string | null;
+  provider?: string | null;
+  type?: string | null;
+};
 
 // V1'de tipleri gevşek tutuyoruz
 type NodeData = {
@@ -30,11 +39,29 @@ type NodeData = {
   type?: string;
   url?: string;
   method?: string;
-  mode?: string; // IF / Formatter için
+  mode?: string; // IF / Formatter / Number Formatter için
   expected?: number | string; // IF node için beklenen değer
   message?: string; // Log node için
-  fieldPath?: string; // Formatter için: okumak istediğin alan (body.xxx)
-  targetPath?: string; // Formatter için: sonucu yazacağın alan
+
+  // Formatter / JSON / Number formatter için
+  fieldPath?: string; // okumak istediğin alan (body.xxx)
+  targetPath?: string; // sonucu yazacağın alan
+  replaceFrom?: string;
+  replaceTo?: string;
+  startIndex?: number;
+  endIndex?: number;
+  rawTextPath?: string;
+  sourcePath?: string;
+  decimals?: number;
+
+  // Webhook Trigger için
+  pathHint?: string;
+  authMode?: "none" | "token";
+  token?: string;
+
+  // Schedule Trigger için
+  cron?: string;
+  timezone?: string;
 
   // Wait node için
   seconds?: number; // bekleme süresi (saniye)
@@ -50,6 +77,26 @@ type NodeData = {
     path: string; // Örn: "body.title"
     value: string; // Şimdilik string olarak saklıyoruz
   }[];
+
+  // Respond Webhook için
+  statusCode?: number;
+  bodyMode?: "static" | "lastOutput" | "customJson";
+  bodyText?: string;
+  bodyJson?: string;
+
+  // Send Email node için
+  to?: string; // virgülle ayrılmış alıcı listesi
+  subject?: string;
+  body?: string;
+  fromEmail?: string;
+  retryCount?: number;
+  retryDelayMs?: number;
+
+  // Node Disable / Skip (V3-036)
+  disabled?: boolean;
+
+  // HTTP node için credential
+  credentialId?: string;
 
   // UI için (DB'ye kaydedilmeyecek fonksiyonlar)
   onChangeData?: (patch: Partial<NodeData>) => void;
@@ -73,6 +120,307 @@ type Toast = {
   variant?: "default" | "success" | "error";
 };
 
+// 🔧 Formatter & Number Formatter helper bileşeni
+type FormatterMode =
+  | "pick_field"
+  | "to_upper"
+  | "to_lower"
+  | "trim"
+  | "replace"
+  | "slice";
+
+type NumberFormatterMode = "round" | "ceil" | "floor" | "percent";
+
+interface NodeSettingsFieldsProps {
+  nodeType: string;
+  data: NodeData;
+  onChange: (partial: Partial<NodeData>) => void;
+}
+
+function NodeSettingsFields({
+  nodeType,
+  data,
+  onChange,
+}: NodeSettingsFieldsProps) {
+  const d = data || {};
+
+  const textInput = (
+    label: string,
+    field: keyof NodeData,
+    placeholder?: string
+  ) => (
+    <div className="mb-3">
+      <label className="block text-xs font-semibold text-slate-50 mb-1">
+        {label}
+      </label>
+      <input
+        className="
+          w-full bg-slate-950 border border-slate-700
+          rounded px-2 py-1 text-sm
+          text-slate-100 placeholder:text-slate-500
+          focus:outline-none focus:border-sky-500
+        "
+        value={(d as any)[field] ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => onChange({ [field]: e.target.value } as any)}
+      />
+    </div>
+  );
+
+  const numberInput = (
+    label: string,
+    field: keyof NodeData,
+    placeholder?: string
+  ) => (
+    <div className="mb-3">
+      <label className="block text-xs font-semibold text-slate-50 mb-1">
+        {label}
+      </label>
+      <input
+        type="number"
+        className="
+          w-full bg-slate-950 border border-slate-700
+          rounded px-2 py-1 text-sm
+          text-slate-100 placeholder:text-slate-500
+          focus:outline-none focus:border-sky-500
+        "
+        value={(d as any)[field] ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => {
+          const val = e.target.value;
+          onChange({
+            [field]:
+              val === "" ? undefined : Number(val),
+          } as any);
+        }}
+      />
+    </div>
+  );
+
+  // TEXT FORMATTER (formatter / text_formatter)
+  if (
+    nodeType === "formatter" ||
+    nodeType === "json_formatter" ||
+    nodeType === "text_formatter"
+  ) {
+    const mode: FormatterMode = (d.mode as FormatterMode) ?? "pick_field";
+
+    return (
+      <>
+        <div className="mb-3">
+          <label className="block text-xs font-semibold text-slate-50 mb-1">
+            Mod (Formatter)
+          </label>
+          <select
+            className="
+              w-full bg-slate-950 border border-slate-700
+              rounded px-2 py-1 text-sm
+              text-slate-100
+              focus:outline-none focus:border-sky-500
+            "
+            value={mode}
+            onChange={(e) => onChange({ mode: e.target.value })}
+          >
+            <option value="pick_field">pick_field (alanı aynen al)</option>
+            <option value="to_upper">to_upper (BÜYÜK harf)</option>
+            <option value="to_lower">to_lower (küçük harf)</option>
+            <option value="trim">trim (boşlukları kırp)</option>
+            <option value="replace">replace (metin değiştir)</option>
+            <option value="slice">slice (substring)</option>
+          </select>
+        </div>
+
+        {textInput(
+          "Kaynak Alan (fieldPath)",
+          "fieldPath",
+          "body.flows.0.name"
+        )}
+        {textInput(
+          "Hedef Alan (targetPath)",
+          "targetPath",
+          "body.flows.0.nameFormatted"
+        )}
+
+        {mode === "replace" && (
+          <>
+            {textInput(
+              "Değiştirilecek Metin (replaceFrom)",
+              "replaceFrom"
+            )}
+            {textInput(
+              "Yeni Metin (replaceTo)",
+              "replaceTo",
+              "örn. YENİ METİN"
+            )}
+          </>
+        )}
+
+        {mode === "slice" && (
+          <div className="grid grid-cols-2 gap-2">
+            {numberInput(
+              "Başlangıç Index (startIndex)",
+              "startIndex",
+              "0"
+            )}
+            {numberInput(
+              "Bitiş Index (endIndex)",
+              "endIndex",
+              "5"
+            )}
+          </div>
+        )}
+
+        <p className="text-[11px] text-slate-300">
+          Formatter node&apos;u her zaman lastOutput içinden{" "}
+          <span className="font-mono">fieldPath</span> alanını okuyup
+          seçilen moda göre işleyerek{" "}
+          <span className="font-mono">targetPath</span>
+          &apos;e yazar.
+        </p>
+      </>
+    );
+  }
+
+  // JSON PARSE NODE
+  if (nodeType === "json_parse") {
+    return (
+      <>
+        {textInput(
+          "Kaynak Text Alanı (rawTextPath)",
+          "rawTextPath",
+          "body.rawJson"
+        )}
+        {textInput(
+          "Sonuç Yazılacak Alan (targetPath)",
+          "targetPath",
+          "body.parsed"
+        )}
+        <p className="text-[11px] text-slate-300">
+          <span className="font-mono">rawTextPath</span> altındaki string{" "}
+          <span className="font-mono">JSON.parse</span> ile çözümlenir ve{" "}
+          <span className="font-mono">targetPath</span>
+          &apos;e yazılır. Parse hatasında lastOutput değişmeden bırakılır ve
+          log&apos;a hata yazılır.
+        </p>
+      </>
+    );
+  }
+
+  // JSON STRINGIFY NODE
+  if (nodeType === "json_stringify") {
+    return (
+      <>
+        {textInput(
+          "Kaynak JSON Alanı (sourcePath)",
+          "sourcePath",
+          "body.parsed"
+        )}
+        {textInput(
+          "Sonuç Yazılacak Alan (targetPath)",
+          "targetPath",
+          "body.rawJson"
+        )}
+        <p className="text-[11px] text-slate-300">
+          <span className="font-mono">sourcePath</span> altındaki değer{" "}
+          <span className="font-mono">JSON.stringify</span> ile string&apos;e
+          çevrilir ve{" "}
+          <span className="font-mono">targetPath</span>
+          &apos;e yazılır.
+        </p>
+      </>
+    );
+  }
+
+  // NUMBER FORMATTER NODE
+  if (nodeType === "number_formatter") {
+    const mode: NumberFormatterMode =
+      (d.mode as NumberFormatterMode) ?? "round";
+
+    return (
+      <>
+        <div className="mb-3">
+          <label className="block text-xs font-semibold text-slate-50 mb-1">
+            Mod (Number Formatter)
+          </label>
+          <select
+            className="
+              w-full bg-slate-950 border border-slate-700
+              rounded px-2 py-1 text-sm
+              text-slate-100
+              focus:outline-none focus:border-sky-500
+            "
+            value={mode}
+            onChange={(e) => onChange({ mode: e.target.value })}
+          >
+            <option value="round">round (yuvarla)</option>
+            <option value="ceil">ceil (yukarı yuvarla)</option>
+            <option value="floor">floor (aşağı yuvarla)</option>
+            <option value="percent">percent (x100, %)</option>
+          </select>
+        </div>
+
+        {textInput(
+          "Kaynak Sayı Alanı (fieldPath)",
+          "fieldPath",
+          "body.value"
+        )}
+        {textInput(
+          "Hedef Alan (targetPath)",
+          "targetPath",
+          "body.valueFormatted"
+        )}
+
+        {numberInput(
+          "Ondalık Basamak (decimals)",
+          "decimals",
+          "2"
+        )}
+
+        <p className="text-[11px] text-slate-300">
+          <span className="font-mono">fieldPath</span> altındaki değer{" "}
+          <span className="font-mono">Number()</span> ile sayıya çevrilir.
+          Seçilen moda göre işlenir ve{" "}
+          <span className="font-mono">targetPath</span>
+          &apos;e yazılır. <span className="font-mono">percent</span> modunda
+          0.23 → 23 gibi çalışır.
+        </p>
+      </>
+    );
+  }
+
+  // Diğer node tipleri için burada ekstra alan yok
+  return null;
+}
+
+// 🔐 Kaydet / Run için login zorunluluğu helper’ı
+async function requireLoginForAction(actionLabel: string) {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      console.warn("requireLoginForAction getUser hatası:", error.message);
+    }
+
+    if (!data?.user) {
+      if (typeof window !== "undefined") {
+        alert(`${actionLabel} için giriş yapmalısın.`);
+
+        const redirect = encodeURIComponent(window.location.pathname);
+        window.location.href = `/login?redirect=${redirect}`;
+      }
+      return null;
+    }
+
+    return data.user;
+  } catch (err) {
+    console.error("requireLoginForAction beklenmeyen hata:", err);
+    if (typeof window !== "undefined") {
+      alert(`${actionLabel} için giriş kontrolü yapılırken bir hata oluştu.`);
+    }
+    return null;
+  }
+}
+
 // 🔹 Sağda duran global ayar paneli (sidebar)
 function NodeSettingsPanel({
   nodeId,
@@ -83,6 +431,62 @@ function NodeSettingsPanel({
   onClose,
 }: NodeSettingsPanelProps) {
   const label = data.label ?? nodeId;
+  const nodeType = data.type ?? "unknown";
+  const disabledToggleId = `node-disabled-${nodeId}`;
+
+  // 🔑 HTTP credentials state
+  const [credentials, setCredentials] = useState<CredentialOption[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(false);
+  const [credentialsError, setCredentialsError] = useState<string | null>(
+    null
+  );
+
+  // HTTP node için credential listesini çek
+  useEffect(() => {
+    if (data.type !== "http_request") return;
+
+    let cancelled = false;
+
+    const loadCredentials = async () => {
+      try {
+        setCredentialsLoading(true);
+        setCredentialsError(null);
+
+        const res = await fetch("/api/credentials");
+        if (!res.ok) {
+          throw new Error("Credentials yüklenemedi");
+        }
+
+        const json = await res.json();
+        const list =
+          json.credentials ??
+          json.data ??
+          json.items ??
+          [];
+
+        if (!cancelled) {
+          setCredentials(list);
+        }
+      } catch (err: any) {
+        console.error("Credentials load error:", err);
+        if (!cancelled) {
+          setCredentialsError(
+            err?.message ?? "Credentials yüklenemedi"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCredentialsLoading(false);
+        }
+      }
+    };
+
+    loadCredentials();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data.type]);
 
   return (
     <div className="h-full w-full max-h-full overflow-y-auto bg-slate-900 text-slate-100 p-4 space-y-4">
@@ -126,6 +530,300 @@ function NodeSettingsPanel({
         />
       </div>
 
+      {/* Formatter / JSON / Number Formatter ortak alanları */}
+      <NodeSettingsFields
+        nodeType={nodeType}
+        data={data}
+        onChange={onChangeData}
+      />
+
+      {/* Node disable / skip (global) */}
+      <div className="mt-1 mb-2 flex items-center gap-2">
+        <input
+          id={disabledToggleId}
+          type="checkbox"
+          checked={!!data.disabled}
+          onChange={(e) =>
+            onChangeData({ disabled: e.target.checked })
+          }
+          className="h-3 w-3 accent-amber-500"
+        />
+        <label
+          htmlFor={disabledToggleId}
+          className="text-[11px] text-slate-200"
+        >
+          Bu node&apos;u devre dışı bırak (skip)
+        </label>
+      </div>
+
+      {data.disabled && (
+        <p className="text-[10px] text-amber-300 mb-2">
+          Bu node çalıştırma sırasında{" "}
+          <span className="font-mono">skipped</span> olarak işaretlenecek.
+        </p>
+      )}
+
+      {/* Webhook Trigger */}
+      {data.type === "webhook_trigger" && (
+        <>
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              HTTP Method
+            </p>
+            <select
+              value={data.method ?? "POST"}
+              onChange={(e) =>
+                onChangeData({ method: e.target.value as string })
+              }
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100
+                focus:outline-none focus:border-sky-500
+              "
+            >
+              <option value="POST">POST</option>
+              <option value="GET">GET</option>
+              <option value="ANY">ANY</option>
+            </select>
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Path Hint
+            </p>
+            <input
+              type="text"
+              value={data.pathHint ?? ""}
+              onChange={(e) => onChangeData({ pathHint: e.target.value })}
+              placeholder="/hooks/my-flow"
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+            <p className="mt-1 text-[11px] text-slate-300">
+              Gerçek webhook URL&apos;si backend tarafında üretilecek; bu alan
+              sadece dokümantasyon için ipucu olarak kullanılacak.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Auth Mode
+            </p>
+            <select
+              value={data.authMode ?? "none"}
+              onChange={(e) =>
+                onChangeData({
+                  authMode: e.target.value as "none" | "token",
+                })
+              }
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100
+                focus:outline-none focus:border-sky-500
+              "
+            >
+              <option value="none">Yetkilendirme yok</option>
+              <option value="token">Basit token</option>
+            </select>
+          </div>
+
+          {(data.authMode ?? "none") === "token" && (
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Token
+              </p>
+              <input
+                type="text"
+                value={data.token ?? ""}
+                onChange={(e) => onChangeData({ token: e.target.value })}
+                placeholder="Örn: secret_123"
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100 placeholder:text-slate-500
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+              <p className="mt-1 text-[11px] text-slate-300">
+                Webhook isteğinde Authorization veya query parametresi
+                olarak kullanılacak basit gizli token.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Schedule Trigger */}
+      {data.type === "schedule_trigger" && (
+        <>
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Cron ifadesi
+            </p>
+            <input
+              type="text"
+              value={data.cron ?? "*/5 * * * *"}
+              onChange={(e) => onChangeData({ cron: e.target.value })}
+              placeholder='Örn: "*/5 * * * *" (her 5 dakikada bir)'
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Zaman dilimi
+            </p>
+            <input
+              type="text"
+              value={data.timezone ?? "Europe/Istanbul"}
+              onChange={(e) => onChangeData({ timezone: e.target.value })}
+              placeholder="Örn: Europe/Istanbul"
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+            <p className="mt-1 text-[11px] text-slate-300">
+              V3&apos;ün ilk sürümünde sistem varsayılan timezone&apos;u
+              kullanılabilir; bu alan gelecekteki cron engine için hazır
+              bekleyecek.
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Respond Webhook */}
+      {data.type === "respond_webhook" && (
+        <>
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              HTTP Status Code
+            </p>
+            <input
+              type="number"
+              value={
+                typeof data.statusCode === "number"
+                  ? data.statusCode
+                  : 200
+              }
+              onChange={(e) =>
+                onChangeData({
+                  statusCode: Number(e.target.value) || 200,
+                })
+              }
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100
+                focus:outline-none focus:border-sky-500
+              "
+            />
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Body modu
+            </p>
+            <select
+              value={data.bodyMode ?? "static"}
+              onChange={(e) =>
+                onChangeData({
+                  bodyMode: e.target.value as
+                    | "static"
+                    | "lastOutput"
+                    | "customJson",
+                })
+              }
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100
+                focus:outline-none focus:border-sky-500
+              "
+            >
+              <option value="static">Statik body</option>
+              <option value="lastOutput">
+                Son lastOutput&apos;u body olarak kullan
+              </option>
+              <option value="customJson">Custom JSON (bodyJson)</option>
+            </select>
+          </div>
+
+          {(data.bodyMode ?? "static") === "static" && (
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Statik Body (JSON veya metin)
+              </p>
+              <textarea
+                rows={4}
+                value={
+                  data.bodyText ??
+                  '{"ok": true, "source": "flowcraft"}'
+                }
+                onChange={(e) =>
+                  onChangeData({ bodyText: e.target.value })
+                }
+                placeholder='Örn: {"ok": true, "source": "flowcraft"}'
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100 placeholder:text-slate-500
+                  resize-none
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+              <p className="mt-1 text-[11px] text-slate-300">
+                JSON gibi görünüyorsa backend parse etmeye çalışır;
+                parse hatası olursa düz string olarak döner.
+              </p>
+            </div>
+          )}
+
+          {data.bodyMode === "customJson" && (
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Custom JSON Body
+              </p>
+              <textarea
+                rows={6}
+                value={
+                  data.bodyJson ??
+                  '{\n  "ok": true,\n  "source": "flowcraft"\n}'
+                }
+                onChange={(e) =>
+                  onChangeData({ bodyJson: e.target.value })
+                }
+                placeholder='Örn: { "ok": true, "source": "flowcraft" }'
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100 placeholder:text-slate-500
+                  resize-none
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+              <p className="mt-1 text-[11px] text-slate-300">
+                Backend bu alanı JSON.parse etmeye çalışır; parse hatası
+                olursa hata bilgisiyle birlikte orijinal string döner.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
       {/* HTTP */}
       {data.type === "http_request" && (
         <>
@@ -163,6 +861,266 @@ function NodeSettingsPanel({
               <option>PUT</option>
               <option>DELETE</option>
             </select>
+          </div>
+
+          {/* 🔑 Credential seçimi */}
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Credential (opsiyonel)
+            </p>
+
+            {credentialsLoading && (
+              <p className="text-[11px] text-slate-400">
+                Credential listesi yükleniyor...
+              </p>
+            )}
+
+            {credentialsError && !credentialsLoading && (
+              <p className="text-[11px] text-red-300">
+                {credentialsError}
+              </p>
+            )}
+
+            {!credentialsLoading && !credentialsError && (
+              <>
+                <select
+                  value={data.credentialId ?? ""}
+                  onChange={(e) =>
+                    onChangeData({
+                      credentialId: e.target.value || undefined,
+                    })
+                  }
+                  className="
+                    w-full bg-slate-950 border border-slate-700
+                    rounded px-2 py-1 text-sm
+                    text-slate-100
+                    focus:outline-none focus:border-sky-500
+                  "
+                >
+                  <option value="">
+                    — Credential seçme (anonim istek) —
+                  </option>
+                  {credentials.map((cred) => (
+                    <option key={cred.id} value={cred.id}>
+                      {cred.name || "Adsız Credential"}
+                      {cred.provider ? ` · ${cred.provider}` : ""}
+                    </option>
+                  ))}
+                </select>
+
+                {credentials.length === 0 && (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Henüz kayıtlı credential yok. Önce üst menüden
+                    &quot;Credentials&quot; sayfasına gidip bir HTTP
+                    credential ekleyebilirsin.
+                  </p>
+                )}
+              </>
+            )}
+
+            <p className="mt-1 text-[11px] text-slate-300">
+              Eğer credential seçersen executor bu credential’a bağlı
+              Authorization / header bilgilerini HTTP isteğine ekleyerek
+              çalıştırır.
+            </p>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Retry sayısı
+              </p>
+              <input
+                type="number"
+                min={0}
+                value={
+                  typeof data.retryCount === "number"
+                    ? data.retryCount
+                    : 0
+                }
+                onChange={(e) =>
+                  onChangeData({
+                    retryCount: Number(e.target.value) || 0,
+                  })
+                }
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+            </div>
+
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Retry delay (ms)
+              </p>
+              <input
+                type="number"
+                min={0}
+                value={
+                  typeof data.retryDelayMs === "number"
+                    ? data.retryDelayMs
+                    : 0
+                }
+                onChange={(e) =>
+                  onChangeData({
+                    retryDelayMs: Number(e.target.value) || 0,
+                  })
+                }
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Send Email */}
+      {data.type === "send_email" && (
+        <>
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Alıcı(lar) (to)
+            </p>
+            <input
+              type="text"
+              value={data.to ?? ""}
+              onChange={(e) => onChangeData({ to: e.target.value })}
+              placeholder="örn: user@example.com, other@example.com"
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+            <p className="mt-1 text-[11px] text-slate-300">
+              Birden fazla adresi virgülle ayırarak yazabilirsin.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Konu (subject)
+            </p>
+            <input
+              type="text"
+              value={data.subject ?? ""}
+              onChange={(e) => onChangeData({ subject: e.target.value })}
+              placeholder="Örn: FlowCraft test maili"
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Gönderici (from) - opsiyonel
+            </p>
+            <input
+              type="text"
+              value={data.fromEmail ?? ""}
+              onChange={(e) =>
+                onChangeData({ fromEmail: e.target.value })
+              }
+              placeholder="örn: flowcraft@example.com"
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                focus:outline-none focus:border-sky-500
+              "
+            />
+            <p className="mt-1 text-[11px] text-slate-300">
+              Boş bırakılırsa backend&apos;deki varsayılan &quot;from&quot;
+              adresi kullanılacak.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-xs mb-1 text-slate-50">
+              Gövde (body)
+            </p>
+            <textarea
+              rows={4}
+              value={
+                data.body ??
+                "Merhaba,\n\nBu mail FlowCraft üzerinden gönderilen bir testtir.\n"
+              }
+              onChange={(e) => onChangeData({ body: e.target.value })}
+              placeholder="Mail içeriğini buraya yaz..."
+              className="
+                w-full bg-slate-950 border border-slate-700
+                rounded px-2 py-1 text-sm
+                text-slate-100 placeholder:text-slate-500
+                resize-none
+                focus:outline-none focus:border-sky-500
+              "
+            />
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Retry sayısı
+              </p>
+              <input
+                type="number"
+                min={0}
+                value={
+                  typeof data.retryCount === "number"
+                    ? data.retryCount
+                    : 0
+                }
+                onChange={(e) =>
+                  onChangeData({
+                    retryCount: Number(e.target.value) || 0,
+                  })
+                }
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+            </div>
+
+            <div>
+              <p className="font-semibold text-xs mb-1 text-slate-50">
+                Retry delay (ms)
+              </p>
+              <input
+                type="number"
+                min={0}
+                value={
+                  typeof data.retryDelayMs === "number"
+                    ? data.retryDelayMs
+                    : 0
+                }
+                onChange={(e) =>
+                  onChangeData({
+                    retryDelayMs: Number(e.target.value) || 0,
+                  })
+                }
+                className="
+                  w-full bg-slate-950 border border-slate-700
+                  rounded px-2 py-1 text-sm
+                  text-slate-100
+                  focus:outline-none focus:border-sky-500
+                "
+              />
+            </div>
           </div>
         </>
       )}
@@ -211,70 +1169,6 @@ function NodeSettingsPanel({
               />
             </div>
           )}
-        </>
-      )}
-
-      {/* Formatter */}
-      {data.type === "formatter" && (
-        <>
-          <div>
-            <p className="font-semibold text-xs mb-1 text-slate-50">
-              Formatlama modu
-            </p>
-            <select
-              value={data.mode ?? "pick_field"}
-              onChange={(e) => onChangeData({ mode: e.target.value })}
-              className="
-                w-full bg-slate-950 border border-slate-700
-                rounded px-2 py-1 text-sm
-                text-slate-100
-                focus:outline-none focus:border-sky-500
-              "
-            >
-              <option value="pick_field">
-                Sadece alanı al (pick_field)
-              </option>
-              <option value="to_upper">Büyük harf (to_upper)</option>
-              <option value="to_lower">Küçük harf (to_lower)</option>
-              <option value="trim">Trim (trim)</option>
-            </select>
-          </div>
-
-          <div>
-            <p className="font-semibold text-xs mb-1 text-slate-50">
-              Kaynak alan (fieldPath)
-            </p>
-            <input
-              type="text"
-              value={data.fieldPath ?? "body"}
-              onChange={(e) => onChangeData({ fieldPath: e.target.value })}
-              placeholder="Örn: body.flows.0.name"
-              className="
-                w-full bg-slate-950 border border-slate-700
-                rounded px-2 py-1 text-sm
-                text-slate-100 placeholder:text-slate-500
-                focus:outline-none focus:border-sky-500
-              "
-            />
-          </div>
-
-          <div>
-            <p className="font-semibold text-xs mb-1 text-slate-50">
-              Hedef alan (targetPath)
-            </p>
-            <input
-              type="text"
-              value={data.targetPath ?? data.fieldPath ?? "body"}
-              onChange={(e) => onChangeData({ targetPath: e.target.value })}
-              placeholder="Örn: body.formattedName"
-              className="
-                w-full bg-slate-950 border border-slate-700
-                rounded px-2 py-1 text-sm
-                text-slate-100 placeholder:text-slate-500
-                focus:outline-none focus:border-sky-500
-              "
-            />
-          </div>
         </>
       )}
 
@@ -505,12 +1399,28 @@ function NodeSettingsPanel({
 const FlowNode = ({ data, selected }: any) => {
   const nodeData: NodeData = data || {};
   const kind = nodeData?.type ?? "generic";
+  const isDisabled = !!nodeData.disabled;
 
   let leftBar = "bg-slate-500";
   let icon = "⚙️";
   let subtitle = "Node";
 
   switch (kind) {
+    case "webhook_trigger":
+      leftBar = "bg-emerald-500";
+      icon = "🔔";
+      subtitle = "Webhook Trigger";
+      break;
+    case "schedule_trigger":
+      leftBar = "bg-sky-500";
+      icon = "⏰";
+      subtitle = "Schedule";
+      break;
+    case "respond_webhook":
+      leftBar = "bg-fuchsia-500";
+      icon = "↩";
+      subtitle = "Respond Webhook";
+      break;
     case "start":
       leftBar = "bg-emerald-500";
       icon = "▶";
@@ -521,6 +1431,11 @@ const FlowNode = ({ data, selected }: any) => {
       icon = "🌐";
       subtitle = nodeData.method ?? "HTTP";
       break;
+    case "send_email":
+      leftBar = "bg-rose-500";
+      icon = "✉️";
+      subtitle = "Send Email";
+      break;
     case "if":
       leftBar = "bg-orange-500";
       icon = "⚖️";
@@ -530,6 +1445,21 @@ const FlowNode = ({ data, selected }: any) => {
       leftBar = "bg-teal-500";
       icon = "🧩";
       subtitle = "Formatter";
+      break;
+    case "json_parse":
+      leftBar = "bg-teal-500";
+      icon = "📥";
+      subtitle = "JSON Parse";
+      break;
+    case "json_stringify":
+      leftBar = "bg-teal-500";
+      icon = "📤";
+      subtitle = "JSON Stringify";
+      break;
+    case "number_formatter":
+      leftBar = "bg-lime-500";
+      icon = "🔢";
+      subtitle = "Number Formatter";
       break;
     case "set_fields":
       leftBar = "bg-lime-500";
@@ -584,6 +1514,20 @@ const FlowNode = ({ data, selected }: any) => {
     settingsTooltip = "Wait node bekleme süresini ayarla";
   } else if (kind === "stop_error" || kind === "stop") {
     settingsTooltip = "Stop & Error node hata kodu ve sebebini ayarla";
+  } else if (kind === "webhook_trigger") {
+    settingsTooltip = "Webhook Trigger ayarlarını düzenle";
+  } else if (kind === "schedule_trigger") {
+    settingsTooltip = "Schedule Trigger cron ayarlarını düzenle";
+  } else if (kind === "respond_webhook") {
+    settingsTooltip = "Respond Webhook HTTP cevabını ayarla";
+  } else if (kind === "send_email") {
+    settingsTooltip = "Send Email node ayarlarını düzenle";
+  } else if (kind === "json_parse") {
+    settingsTooltip = "JSON Parse node ayarlarını düzenle";
+  } else if (kind === "json_stringify") {
+    settingsTooltip = "JSON Stringify node ayarlarını düzenle";
+  } else if (kind === "number_formatter") {
+    settingsTooltip = "Number Formatter node ayarlarını düzenle";
   }
 
   const baseCardClasses = `
@@ -598,8 +1542,12 @@ const FlowNode = ({ data, selected }: any) => {
     ? "border-sky-400 ring-2 ring-sky-300"
     : "border-slate-300";
 
+  const disabledClasses = isDisabled
+    ? "opacity-60 saturate-0"
+    : "";
+
   return (
-    <div className={`${baseCardClasses} ${selectedClasses}`}>
+    <div className={`${baseCardClasses} ${selectedClasses} ${disabledClasses}`}>
       {/* Solda tam yükseklik renk barı */}
       <div className={`absolute left-0 top-0 h-full w-[6px] ${leftBar}`} />
 
@@ -635,6 +1583,20 @@ const FlowNode = ({ data, selected }: any) => {
             <span className="text-[11px] text-slate-500 truncate">
               {subtitle}
             </span>
+
+            {isDisabled && (
+              <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-slate-200 text-[10px] text-slate-700 px-1.5 py-[1px] border border-slate-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                Devre dışı
+              </span>
+            )}
+
+            {/* 🔑 HTTP node için credential bağlı badge */}
+            {kind === "http_request" && nodeData.credentialId && (
+              <span className="text-[10px] text-emerald-600 truncate">
+                🔑 Credential bağlı
+              </span>
+            )}
           </div>
 
           {/* Ayar butonu: en sağda */}
@@ -1049,6 +2011,60 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
   );
 
   // ----------------- NODE ADDERS -----------------
+  const addWebhookTriggerNode = () => {
+    const newNode = {
+      id: `webhook_${Date.now()}`,
+      type: "default",
+      position: { x: 100, y: 50 },
+      data: {
+        label: "Webhook Trigger",
+        type: "webhook_trigger",
+        method: "POST",
+        pathHint: `/hooks/${flowId.slice(0, 8)}`,
+        authMode: "none",
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addScheduleTriggerNode = () => {
+    const newNode = {
+      id: `schedule_${Date.now()}`,
+      type: "default",
+      position: { x: 100, y: 220 },
+      data: {
+        label: "Schedule Trigger",
+        type: "schedule_trigger",
+        cron: "*/5 * * * *",
+        timezone: "Europe/Istanbul",
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addRespondWebhookNode = () => {
+    const newNode = {
+      id: `respond_${Date.now()}`,
+      type: "default",
+      position: { x: 350, y: 220 },
+      data: {
+        label: "Respond Webhook",
+        type: "respond_webhook",
+        statusCode: 200,
+        bodyMode: "static",
+        bodyText: '{"ok": true, "source": "flowcraft"}',
+        bodyJson: '{\n  "ok": true,\n  "source": "flowcraft"\n}',
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
   const addStartNode = () => {
     const newNode = {
       id: `start_${Date.now()}`,
@@ -1069,9 +2085,30 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
       data: {
         label: "HTTP Request",
         type: "http_request",
-        url: "/api/env", // 🔁 BURASI GÜNCEL
+        url: "/api/env",
         method: "GET",
-      },
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addSendEmailNode = () => {
+    const newNode = {
+      id: `send_email_${Date.now()}`,
+      type: "default",
+      position: { x: 350, y: 260 },
+      data: {
+        label: "Send Email",
+        type: "send_email",
+        to: "example@example.com",
+        subject: "FlowCraft test maili",
+        body: "Merhaba,\n\nBu mail FlowCraft üzerinden gönderilen bir testtir.\n",
+        fromEmail: "",
+        retryCount: 0,
+        retryDelayMs: 0,
+      } as NodeData,
     };
 
     setNodes((nds: any[]) => [...nds, newNode]);
@@ -1106,6 +2143,59 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
         mode: "pick_field",
         fieldPath: "body",
         targetPath: "body",
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addJsonParseNode = () => {
+    const newNode = {
+      id: `json_parse_${Date.now()}`,
+      type: "default",
+      position: { x: 650, y: 260 },
+      data: {
+        label: "JSON Parse",
+        type: "json_parse",
+        rawTextPath: "body.rawJson",
+        targetPath: "body.parsed",
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addJsonStringifyNode = () => {
+    const newNode = {
+      id: `json_stringify_${Date.now()}`,
+      type: "default",
+      position: { x: 650, y: 320 },
+      data: {
+        label: "JSON Stringify",
+        type: "json_stringify",
+        sourcePath: "body.parsed",
+        targetPath: "body.rawJson",
+      } as NodeData,
+    };
+
+    setNodes((nds: any[]) => [...nds, newNode]);
+    triggerAutoSave();
+  };
+
+  const addNumberFormatterNode = () => {
+    const newNode = {
+      id: `number_formatter_${Date.now()}`,
+      type: "default",
+      position: { x: 650, y: 380 },
+      data: {
+        label: "Number Formatter",
+        type: "number_formatter",
+        mode: "round",
+        fieldPath: "body.value",
+        targetPath: "body.valueFormatted",
+        decimals: 2,
       } as NodeData,
     };
 
@@ -1211,9 +2301,9 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
       data: {
         label: "Ping HTTP",
         type: "http_request",
-        url: "/api/env", // 🔁 BURASI DA GÜNCEL
+        url: "/api/env",
         method: "GET",
-      },
+      } as NodeData,
     };
 
     const edge = {
@@ -1357,6 +2447,10 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
 
   // ----------------- MANUAL SAVE -----------------
   const handleSave = useCallback(async () => {
+    // 🔐 Önce login kontrolü
+    const user = await requireLoginForAction("Kaydetmek");
+    if (!user) return;
+
     try {
       setSaving(true);
 
@@ -1383,6 +2477,10 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
 
   // ----------------- RUN FLOW -----------------
   const handleRun = useCallback(async () => {
+    // 🔐 Önce login kontrolü
+    const user = await requireLoginForAction("Akışı çalıştırmak");
+    if (!user) return;
+
     // 1) Start node var mı?
     const startNodes = nodes.filter(
       (node: any) => node?.data?.type === "start"
@@ -1570,6 +2668,11 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
     runStatusBgClass = "bg-red-600";
   }
 
+  let metaStatusText: string | null = null;
+  if (metaSaving) metaStatusText = "Flow bilgisi kaydediliyor...";
+  else if (metaError) metaStatusText = `Hata: ${metaError}`;
+  else if (metaSaved) metaStatusText = "Flow bilgisi kaydedildi ✓";
+
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100">
       {/* ÜST BAR */}
@@ -1577,7 +2680,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
         {/* SOL: Back + Flow title */}
         <div className="flex items-center gap-3 flex-1">
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/flows")}
             className="text-xs text-slate-300 hover:text-white flex items-center gap-1"
           >
             <span>←</span>
@@ -1667,7 +2770,7 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
                   Editör Paneli
                 </p>
                 <span className="text-[9px] px-1.5 py-[1px] rounded-full border border-slate-600 text-slate-400">
-                  V2.1
+                  V3
                 </span>
               </div>
               <button
@@ -1715,6 +2818,12 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
                   className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:border-blue-500"
                 />
               </div>
+
+              {metaStatusText && (
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {metaStatusText}
+                </p>
+              )}
             </div>
 
             {/* Node araçları */}
@@ -1722,6 +2831,32 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
               <p className="text-[11px] font-semibold text-slate-300 mb-1">
                 Node Araçları
               </p>
+
+              {/* Trigger node'ları */}
+              <button
+                onClick={addWebhookTriggerNode}
+                className="w-full bg-emerald-600/90 hover:bg-emerald-600 rounded px-3 py-1 text-[11px]"
+              >
+                Webhook Trigger Node Ekle
+              </button>
+
+              <button
+                onClick={addScheduleTriggerNode}
+                className="w-full bg-sky-600/90 hover:bg-sky-600 rounded px-3 py-1 text-[11px]"
+              >
+                Schedule Trigger Node Ekle
+              </button>
+
+              <button
+                onClick={addRespondWebhookNode}
+                className="w-full bg-fuchsia-600/90 hover:bg-fuchsia-600 rounded px-3 py-1 text-[11px]"
+              >
+                Respond Webhook Node Ekle
+              </button>
+
+              <div className="h-px bg-slate-700/70 my-1" />
+
+              {/* Diğer node'lar */}
               <button
                 onClick={addStartNode}
                 className="w-full bg-green-600/90 hover:bg-green-600 rounded px-3 py-1 text-[11px]"
@@ -1737,6 +2872,13 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
               </button>
 
               <button
+                onClick={addSendEmailNode}
+                className="w-full bg-rose-600/90 hover:bg-rose-600 rounded px-3 py-1 text-[11px]"
+              >
+                Send Email Node Ekle
+              </button>
+
+              <button
                 onClick={addIfNode}
                 className="w-full bg-orange-600/90 hover:bg-orange-600 rounded px-3 py-1 text-[11px]"
               >
@@ -1748,6 +2890,27 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
                 className="w-full bg-teal-600/90 hover:bg-teal-600 rounded px-3 py-1 text-[11px]"
               >
                 Formatter Node Ekle
+              </button>
+
+              <button
+                onClick={addJsonParseNode}
+                className="w-full bg-teal-700/90 hover:bg-teal-700 rounded px-3 py-1 text-[11px]"
+              >
+                JSON Parse Node Ekle
+              </button>
+
+              <button
+                onClick={addJsonStringifyNode}
+                className="w-full bg-teal-700/90 hover:bg-teal-700 rounded px-3 py-1 text-[11px]"
+              >
+                JSON Stringify Node Ekle
+              </button>
+
+              <button
+                onClick={addNumberFormatterNode}
+                className="w-full bg-lime-700/90 hover:bg-lime-700 rounded px-3 py-1 text-[11px]"
+              >
+                Number Formatter Node Ekle
               </button>
 
               <button
@@ -1936,7 +3099,11 @@ export default function FlowEditorClient({ flowId }: { flowId: string }) {
                     <RunHistoryPanel
                       flowId={flowId}
                       selectedRunId={runId}
-                      onSelectRun={(id) => setRunId(id)}
+                      onSelectRun={(id) => {
+                        setRunId(id);
+                        setBottomTab("logs");
+                        setBottomPanelOpen(true);
+                      }}
                     />
                   ) : (
                     <RunOutputPanel runId={runId} />

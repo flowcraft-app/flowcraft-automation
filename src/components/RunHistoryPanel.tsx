@@ -12,6 +12,11 @@ type RunItem = {
   id: string;
   status: string;
   created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
+  trigger_type?: string;
+  trigger_payload?: any;
   // Supabase'ten ekstra kolonlar geliyor olabilir
   [key: string]: any;
 };
@@ -68,6 +73,31 @@ export default function RunHistoryPanel({
     return `${diffDay} gün önce`;
   };
 
+  // 🔹 duration_ms → “850 ms / 1.2 sn / 2 dk 5 sn / 1 sa 3 dk”
+  const formatDuration = (ms?: number) => {
+    if (ms == null) return null;
+    if (Number.isNaN(ms) || ms < 0) return null;
+
+    if (ms < 1000) return `${Math.round(ms)} ms`;
+
+    const sec = ms / 1000;
+    if (sec < 60) return `${sec.toFixed(1)} sn`;
+
+    const totalMin = Math.floor(sec / 60);
+    const remSec = Math.round(sec - totalMin * 60);
+
+    if (totalMin < 60) {
+      if (remSec <= 0) return `${totalMin} dk`;
+      return `${totalMin} dk ${remSec} sn`;
+    }
+
+    const hours = Math.floor(totalMin / 60);
+    const remMin = totalMin - hours * 60;
+
+    if (remMin <= 0) return `${hours} sa`;
+    return `${hours} sa ${remMin} dk`;
+  };
+
   const renderStatusBadge = (status: string) => {
     let label = status;
     let classes = "bg-slate-800 text-slate-200 border border-slate-500";
@@ -102,6 +132,37 @@ export default function RunHistoryPanel({
         className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] capitalize ${classes}`}
       >
         {label}
+      </span>
+    );
+  };
+
+  // 🔹 Trigger tipi için küçük rozet (manual / webhook / schedule)
+  const renderTriggerBadge = (triggerType?: string) => {
+    const t = (triggerType || "manual").toLowerCase();
+
+    let label = "Manuel";
+    let icon = "🖐️";
+    let classes =
+      "bg-slate-900/80 text-slate-200 border border-slate-600/80";
+
+    if (t === "webhook") {
+      label = "Webhook";
+      icon = "🪝";
+      classes =
+        "bg-sky-950/80 text-sky-300 border border-sky-600/80";
+    } else if (t === "schedule") {
+      label = "Schedule";
+      icon = "⏰";
+      classes =
+        "bg-indigo-950/80 text-indigo-300 border border-indigo-600/80";
+    }
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] ${classes}`}
+      >
+        <span className="text-[9px] leading-none">{icon}</span>
+        <span className="capitalize">{label}</span>
       </span>
     );
   };
@@ -227,7 +288,10 @@ export default function RunHistoryPanel({
       list = list.filter((r) => {
         const idPart = r.id.toLowerCase().includes(term);
         const statusPart = (r.status || "").toLowerCase().includes(term);
-        return idPart || statusPart;
+        const triggerPart = (r.trigger_type || "")
+          .toLowerCase()
+          .includes(term);
+        return idPart || statusPart || triggerPart;
       });
     }
 
@@ -305,7 +369,7 @@ export default function RunHistoryPanel({
       <div className="px-3 py-2 border-b border-slate-800 flex flex-wrap items-center gap-2">
         <input
           type="text"
-          placeholder="Run ID / status ara..."
+          placeholder="Run ID / status / trigger ara..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[120px] px-2 py-1 rounded bg-slate-950/70 border border-slate-700 text-[11px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
@@ -363,6 +427,11 @@ export default function RunHistoryPanel({
                 const rowHover =
                   "hover:bg-slate-900/70 border-transparent";
 
+                const durationLabel =
+                  typeof run.duration_ms === "number"
+                    ? formatDuration(run.duration_ms)
+                    : null;
+
                 return (
                   <li
                     key={run.id}
@@ -396,12 +465,21 @@ export default function RunHistoryPanel({
                               · {formatRelative(run.created_at)}
                             </span>
                           )}
+                          {durationLabel && (
+                            <span className="text-slate-500">
+                              {" "}
+                              · Süre: {durationLabel}
+                            </span>
+                          )}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex flex-col items-end gap-1">
-                      {renderStatusBadge(run.status)}
+                      <div className="flex items-center gap-1">
+                        {renderStatusBadge(run.status)}
+                        {renderTriggerBadge(run.trigger_type)}
+                      </div>
 
                       <button
                         type="button"

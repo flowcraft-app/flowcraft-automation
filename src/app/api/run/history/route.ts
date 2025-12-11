@@ -1,8 +1,12 @@
 import { supabase } from "../../../../lib/supabaseClient";
 
-function isValidUuid(value: string): boolean {
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-    value
+const DEFAULT_WORKSPACE_ID =
+  process.env.FLOWCRAFT_DEFAULT_WORKSPACE_ID ??
+  "abc3566e-d898-439c-9f5a-d78f6540ea42";
+
+if (!DEFAULT_WORKSPACE_ID) {
+  console.error(
+    "FLOWCRAFT_DEFAULT_WORKSPACE_ID env değişkeni tanımlı değil. Lütfen .env.local dosyasına ekleyin."
   );
 }
 
@@ -25,12 +29,11 @@ export async function GET(req: Request) {
       });
     }
 
-    // 2) UUID format kontrolü
-    if (!isValidUuid(flowId)) {
+    if (!DEFAULT_WORKSPACE_ID) {
       return new Response(
-        JSON.stringify({ error: "invalid flow_id format" }),
+        JSON.stringify({ error: "Default workspace ID tanımlı değil." }),
         {
-          status: 400,
+          status: 500,
           headers: { "Content-Type": "application/json" },
         }
       );
@@ -54,11 +57,12 @@ export async function GET(req: Request) {
       }
     }
 
-    // 5) temel sorgu: sadece bu flow'un run'ları
+    // 5) temel sorgu: sadece bu flow'un, bu workspace'e ait run'ları
     let query = supabase
       .from("flow_runs")
       .select("*") // V2 için tüm kolonlar gelsin, panelde işimize yarar
-      .eq("flow_id", flowId);
+      .eq("flow_id", flowId)
+      .eq("workspace_id", DEFAULT_WORKSPACE_ID);
 
     // 6) status filtresi (all ise dokunma)
     if (statusParam && statusParam !== "all") {
@@ -102,7 +106,33 @@ export async function GET(req: Request) {
     const hasMore = rows.length > limit;
     const runs = hasMore ? rows.slice(0, limit) : rows;
 
-    return new Response(JSON.stringify({ runs, hasMore }), {
+    // 🔹 duration_ms yoksa started_at / finished_at'tan hesapla (UI için sugar)
+    const normalizedRuns = runs.map((run: any) => {
+      let duration_ms = run.duration_ms;
+
+      if (
+        (duration_ms == null || duration_ms < 0) &&
+        run.started_at &&
+        run.finished_at
+      ) {
+        try {
+          const s = new Date(run.started_at).getTime();
+          const f = new Date(run.finished_at).getTime();
+          if (!Number.isNaN(s) && !Number.isNaN(f) && f >= s) {
+            duration_ms = f - s;
+          }
+        } catch {
+          // parse hatası olursa duration_ms dokunma
+        }
+      }
+
+      return {
+        ...run,
+        duration_ms,
+      };
+    });
+
+    return new Response(JSON.stringify({ runs: normalizedRuns, hasMore }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
